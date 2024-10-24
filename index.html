@@ -4,6 +4,14 @@ body {
   color: white;
   font-family: Arial, sans-serif;
 }
+.notice {
+  background: #ff9800;
+  color: black;
+  padding: 15px;
+  margin-bottom: 20px;
+  border-radius: 5px;
+  line-height: 1.4;
+}
 .entry {
   background: #222;
   padding: 10px;
@@ -12,6 +20,10 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+.permanent {
+  border-left: 4px solid #ff9800;
+  background: #2c2c2c;
 }
 .entry-actions button {
   margin-left: 5px;
@@ -28,6 +40,10 @@ body {
   background: #f44336;
   color: white;
 }
+.delete-button:disabled {
+  background: #666;
+  cursor: not-allowed;
+}
 input, button {
   padding: 8px;
   margin: 5px;
@@ -40,7 +56,7 @@ button {
   border: none;
   cursor: pointer;
 }
-button:hover {
+button:hover:not(:disabled) {
   opacity: 0.9;
 }
 .editor {
@@ -52,6 +68,12 @@ button:hover {
 </style></head><body>
 
 <div id="storeViewer" style="padding: 20px; max-width: 800px; margin: 0 auto;">
+  <div class="notice">
+    <strong>Important Notice:</strong> Due to the nature of WebsimSocket's store implementation, it's not possible to create truly "undeletable" entries. 
+    Any client can modify or delete any entry in the store. However, for demonstration purposes, we'll mark certain entries as "permanent" and disable 
+    their delete buttons in the UI (though they could still be deleted programmatically or by other means).
+  </div>
+
   <h2>Multiplayer Store Editor</h2>
   <div id="users" style="margin-bottom: 20px;"></div>
   
@@ -59,6 +81,11 @@ button:hover {
     <h3>Add New Value</h3>
     <input type="text" id="keyInput" placeholder="Key" style="margin-right: 10px;">
     <input type="text" id="valueInput" placeholder="Value">
+    <div style="margin: 10px 0;">
+      <label>
+        <input type="checkbox" id="permanentCheck"> Mark as permanent (cannot be deleted through UI)
+      </label>
+    </div>
     <button onclick="updateStore()">Add</button>
   </div>
 
@@ -71,7 +98,17 @@ button:hover {
 <script>
 const room = new WebsimSocket();
 
-// Update the users display
+// Set of permanent keys
+const PERMANENT_KEYS = new Set();
+
+// Initialize with a permanent entry
+room.store.update({
+  id: "system_info",
+  dependencies: { value: "This is a permanent system entry" },
+  updateFunction: (current) => current || "This is a permanent system entry"
+});
+PERMANENT_KEYS.add("system_info");
+
 room.onPeersChanged = (peers) => {
   const usersDiv = document.getElementById('users');
   usersDiv.innerHTML = '<h3>Connected Users:</h3>';
@@ -85,7 +122,6 @@ room.onPeersChanged = (peers) => {
   });
 };
 
-// Function to render the store content
 async function renderStore() {
   const store = await room.store.getAll();
   const storeContent = document.getElementById('storeContent');
@@ -93,32 +129,32 @@ async function renderStore() {
   
   Object.entries(store).forEach(([key, value]) => {
     const entry = document.createElement('div');
-    entry.className = 'entry';
+    entry.className = 'entry' + (PERMANENT_KEYS.has(key) ? ' permanent' : '');
     
-    // Escape the key and value for safe insertion into HTML string
     const escapedKey = key.replace(/"/g, '&quot;');
     const escapedValue = JSON.stringify(value).replace(/"/g, '&quot;');
     
     entry.innerHTML = `
       <div class="entry-content">
         <strong>${escapedKey}:</strong> ${value}
+        ${PERMANENT_KEYS.has(key) ? '<span style="color: #ff9800; margin-left: 10px;">(Permanent Entry)</span>' : ''}
       </div>
       <div class="entry-actions">
         <button class="edit-button" onclick="editEntry('${escapedKey}', '${escapedValue}')">Edit</button>
-        <button class="delete-button" onclick="deleteEntry('${escapedKey}')">Delete</button>
+        <button class="delete-button" onclick="deleteEntry('${escapedKey}')" 
+          ${PERMANENT_KEYS.has(key) ? 'disabled' : ''}>Delete</button>
       </div>
     `;
     storeContent.appendChild(entry);
   });
 }
 
-// Update store display whenever any record changes
 room.onRecordChanged = renderStore;
 
-// Function to update the store
 async function updateStore() {
   const key = document.getElementById('keyInput').value;
   const value = document.getElementById('valueInput').value;
+  const isPermanent = document.getElementById('permanentCheck').checked;
   
   if (!key) {
     alert('Please enter a key');
@@ -132,16 +168,20 @@ async function updateStore() {
       updateFunction: () => value
     });
 
+    if (isPermanent) {
+      PERMANENT_KEYS.add(key);
+    }
+
     // Clear inputs
     document.getElementById('keyInput').value = '';
     document.getElementById('valueInput').value = '';
+    document.getElementById('permanentCheck').checked = false;
   } catch (error) {
     console.error('Error updating store:', error);
     alert('Failed to update store');
   }
 }
 
-// Function to edit an entry
 async function editEntry(key, currentValue) {
   try {
     const parsedValue = JSON.parse(currentValue);
@@ -160,14 +200,18 @@ async function editEntry(key, currentValue) {
   }
 }
 
-// Function to delete an entry
 async function deleteEntry(key) {
+  if (PERMANENT_KEYS.has(key)) {
+    alert('This entry cannot be deleted as it is marked as permanent.');
+    return;
+  }
+
   if (confirm(`Are you sure you want to delete "${key}"?`)) {
     try {
       await room.store.update({
         id: key,
         dependencies: {},
-        updateFunction: () => undefined // Setting to undefined removes the entry
+        updateFunction: () => undefined
       });
     } catch (error) {
       console.error('Error deleting entry:', error);
