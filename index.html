@@ -466,14 +466,19 @@ async function addSecureEntry() {
   };
 
   const signature = await securityManager.sign(data);
+  const publicKey = securityManager.publicKeyString;
 
   await room.store.update({
     id: key,
-    dependencies: { data, signature, publicKey: securityManager.publicKeyString },
-    updateFunction: () => ({
+    dependencies: { 
+      data, 
+      signature, 
+      publicKey 
+    },
+    updateFunction: (record) => ({
       data,
       signature,
-      publicKey: securityManager.publicKeyString
+      publicKey
     })
   });
 
