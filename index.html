@@ -1,20 +1,70 @@
-<html><head><base href="https://websim.dev-next.co"><style>body{background: #111; color: white;}</style></head><body>
-Testing the WebsimSocket's store functionality with a simple multiplayer key-value store viewer/editor.
+<html><head><base href="https://websim.dev-next.co"><style>
+body {
+  background: #111;
+  color: white;
+  font-family: Arial, sans-serif;
+}
+.entry {
+  background: #222;
+  padding: 10px;
+  margin: 5px 0;
+  border-radius: 5px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.entry-actions button {
+  margin-left: 5px;
+  padding: 5px 10px;
+  border-radius: 3px;
+  border: none;
+  cursor: pointer;
+}
+.edit-button {
+  background: #2196F3;
+  color: white;
+}
+.delete-button {
+  background: #f44336;
+  color: white;
+}
+input, button {
+  padding: 8px;
+  margin: 5px;
+  border-radius: 4px;
+  border: 1px solid #333;
+}
+button {
+  background: #4CAF50;
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+button:hover {
+  opacity: 0.9;
+}
+.editor {
+  margin: 20px 0;
+  padding: 15px;
+  background: #222;
+  border-radius: 5px;
+}
+</style></head><body>
 
-<div id="storeViewer" style="padding: 20px;">
-  <h2>Multiplayer Store Test</h2>
+<div id="storeViewer" style="padding: 20px; max-width: 800px; margin: 0 auto;">
+  <h2>Multiplayer Store Editor</h2>
   <div id="users" style="margin-bottom: 20px;"></div>
   
-  <div style="margin-bottom: 20px;">
-    <h3>Add/Update Value</h3>
+  <div class="editor">
+    <h3>Add New Value</h3>
     <input type="text" id="keyInput" placeholder="Key" style="margin-right: 10px;">
     <input type="text" id="valueInput" placeholder="Value">
-    <button onclick="updateStore()">Update</button>
+    <button onclick="updateStore()">Add</button>
   </div>
 
   <div>
-    <h3>Current Store Contents:</h3>
-    <pre id="storeContent" style="background: #222; padding: 10px; border-radius: 5px;"></pre>
+    <h3>Store Contents:</h3>
+    <div id="storeContent"></div>
   </div>
 </div>
 
@@ -35,11 +85,30 @@ room.onPeersChanged = (peers) => {
   });
 };
 
-// Update store display whenever any record changes
-room.onRecordChanged = async () => {
+// Function to render the store content
+async function renderStore() {
   const store = await room.store.getAll();
-  document.getElementById('storeContent').textContent = JSON.stringify(store, null, 2);
-};
+  const storeContent = document.getElementById('storeContent');
+  storeContent.innerHTML = '';
+  
+  Object.entries(store).forEach(([key, value]) => {
+    const entry = document.createElement('div');
+    entry.className = 'entry';
+    entry.innerHTML = `
+      <div class="entry-content">
+        <strong>${key}:</strong> ${JSON.stringify(value)}
+      </div>
+      <div class="entry-actions">
+        <button class="edit-button" onclick="editEntry('${key}', ${JSON.stringify(value)})">Edit</button>
+        <button class="delete-button" onclick="deleteEntry('${key}')">Delete</button>
+      </div>
+    `;
+    storeContent.appendChild(entry);
+  });
+}
+
+// Update store display whenever any record changes
+room.onRecordChanged = renderStore;
 
 // Function to update the store
 async function updateStore() {
@@ -62,8 +131,31 @@ async function updateStore() {
   document.getElementById('valueInput').value = '';
 }
 
+// Function to edit an entry
+async function editEntry(key, currentValue) {
+  const newValue = prompt(`Edit value for "${key}":`, currentValue);
+  if (newValue !== null) {
+    await room.store.update({
+      id: key,
+      dependencies: { newValue },
+      updateFunction: () => newValue
+    });
+  }
+}
+
+// Function to delete an entry
+async function deleteEntry(key) {
+  if (confirm(`Are you sure you want to delete "${key}"?`)) {
+    await room.store.update({
+      id: key,
+      dependencies: {},
+      updateFunction: () => undefined // Setting to undefined removes the entry
+    });
+  }
+}
+
 // Initial store content load
-room.onRecordChanged();
+renderStore();
 </script>
 
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
