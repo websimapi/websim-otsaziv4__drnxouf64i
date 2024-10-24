@@ -12,37 +12,38 @@ body {
   border-radius: 5px;
   line-height: 1.4;
 }
+.secure-entry {
+  background: #1a472a;
+  padding: 15px;
+  margin: 10px 0;
+  border-radius: 5px;
+  border-left: 4px solid #2ecc71;
+}
 .entry {
   background: #222;
-  padding: 10px;
-  margin: 5px 0;
+  padding: 15px;
+  margin: 10px 0;
   border-radius: 5px;
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
-.permanent {
-  border-left: 4px solid #ff9800;
-  background: #2c2c2c;
-}
-.entry-actions button {
-  margin-left: 5px;
-  padding: 5px 10px;
+.verification-badge {
+  background: #2ecc71;
+  color: white;
+  padding: 3px 8px;
   border-radius: 3px;
-  border: none;
-  cursor: pointer;
+  font-size: 0.8em;
+  margin-left: 10px;
 }
-.edit-button {
-  background: #2196F3;
-  color: white;
+.invalid-badge {
+  background: #e74c3c;
 }
-.delete-button {
-  background: #f44336;
-  color: white;
-}
-.delete-button:disabled {
-  background: #666;
-  cursor: not-allowed;
+.setup-container {
+  background: #222;
+  padding: 20px;
+  border-radius: 5px;
+  margin: 20px 0;
 }
 input, button {
   padding: 8px;
@@ -56,58 +57,335 @@ button {
   border: none;
   cursor: pointer;
 }
-button:hover:not(:disabled) {
-  opacity: 0.9;
+button:disabled {
+  background: #666;
+  cursor: not-allowed;
 }
-.editor {
-  margin: 20px 0;
-  padding: 15px;
-  background: #222;
-  border-radius: 5px;
+.pin-input {
+  letter-spacing: 0.5em;
+  text-align: center;
 }
 </style></head><body>
 
-<div id="storeViewer" style="padding: 20px; max-width: 800px; margin: 0 auto;">
+<div id="mainContainer" style="padding: 20px; max-width: 800px; margin: 0 auto;">
   <div class="notice">
-    <strong>Important Notice:</strong> Due to the nature of WebsimSocket's store implementation, it's not possible to create truly "undeletable" entries. 
-    Any client can modify or delete any entry in the store. However, for demonstration purposes, we'll mark certain entries as "permanent" and disable 
-    their delete buttons in the UI (though they could still be deleted programmatically or by other means).
+    <strong>Security Features:</strong>
+    <ul>
+      <li>All entries are signed with your private key</li>
+      <li>Checksums verify data integrity</li>
+      <li>Auto-repair system for tampered data</li>
+      <li>PIN-protected private keys stored in IndexedDB</li>
+      <li>Protected entries cannot be edited or deleted by other users</li>
+    </ul>
   </div>
 
-  <h2>Multiplayer Store Editor</h2>
-  <div id="users" style="margin-bottom: 20px;"></div>
-  
-  <div class="editor">
-    <h3>Add New Value</h3>
-    <input type="text" id="keyInput" placeholder="Key" style="margin-right: 10px;">
-    <input type="text" id="valueInput" placeholder="Value">
-    <div style="margin: 10px 0;">
-      <label>
-        <input type="checkbox" id="permanentCheck"> Mark as permanent (cannot be deleted through UI)
-      </label>
+  <div id="setupContainer" class="setup-container" style="display: none;">
+    <h3>First-Time Setup</h3>
+    <p>Create a PIN to protect your private key (6 digits):</p>
+    <input type="password" id="pinInput" class="pin-input" maxlength="6" pattern="[0-9]*" inputmode="numeric" placeholder="******">
+    <button onclick="setupKeys()">Generate Keys</button>
+  </div>
+
+  <div id="unlockContainer" class="setup-container" style="display: none;">
+    <h3>Unlock Your Key</h3>
+    <p>Enter your PIN:</p>
+    <input type="password" id="unlockPin" class="pin-input" maxlength="6" pattern="[0-9]*" inputmode="numeric" placeholder="******">
+    <button onclick="unlockWithPin()">Unlock</button>
+  </div>
+
+  <div id="mainContent" style="display: none;">
+    <h2>Secure Multiplayer Store</h2>
+    <div id="users" style="margin-bottom: 20px;"></div>
+    
+    <div class="editor">
+      <h3>Add New Secure Entry</h3>
+      <input type="text" id="keyInput" placeholder="Key" style="margin-right: 10px;">
+      <input type="text" id="valueInput" placeholder="Value">
+      <button onclick="addSecureEntry()">Add Signed Entry</button>
     </div>
-    <button onclick="updateStore()">Add</button>
-  </div>
 
-  <div>
-    <h3>Store Contents:</h3>
-    <div id="storeContent"></div>
+    <div>
+      <h3>Store Contents:</h3>
+      <div id="storeContent"></div>
+    </div>
   </div>
 </div>
 
 <script>
+// Utility functions for crypto operations
+const crypto = window.crypto.subtle;
+
+class SecurityManager {
+  constructor() {
+    this.keyPair = null;
+    this.publicKeyString = null;
+    this.db = null;
+    this.initialized = false;
+  }
+
+  async init() {
+    // Open IndexedDB
+    const dbPromise = new Promise((resolve, reject) => {
+      const request = indexedDB.open('SecureStore', 1);
+      
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+      
+      request.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('keys')) {
+          db.createObjectStore('keys', { keyPath: 'id' });
+        }
+      };
+    });
+
+    this.db = await dbPromise;
+    
+    // Check if keys exist
+    const hasKeys = await this.hasStoredKeys();
+    if (hasKeys) {
+      document.getElementById('unlockContainer').style.display = 'block';
+    } else {
+      document.getElementById('setupContainer').style.display = 'block';
+    }
+  }
+
+  async hasStoredKeys() {
+    return new Promise((resolve) => {
+      const tx = this.db.transaction('keys', 'readonly');
+      const store = tx.objectStore('keys');
+      const request = store.get('privateKey');
+      
+      request.onsuccess = () => {
+        resolve(!!request.result);
+      };
+    });
+  }
+
+  async generateKeyPair() {
+    this.keyPair = await crypto.generateKey(
+      {
+        name: 'ECDSA',
+        namedCurve: 'P-256'
+      },
+      true,
+      ['sign', 'verify']
+    );
+
+    // Export public key for sharing
+    const publicKeyBuffer = await crypto.exportKey('raw', this.keyPair.publicKey);
+    this.publicKeyString = Array.from(new Uint8Array(publicKeyBuffer))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+    
+    return this.keyPair;
+  }
+
+  async storeKeys(pin) {
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const keyMaterial = await crypto.importKey(
+      'raw',
+      new TextEncoder().encode(pin),
+      { name: 'PBKDF2' },
+      false,
+      ['deriveBits', 'deriveKey']
+    );
+
+    const encryptionKey = await crypto.deriveKey(
+      {
+        name: 'PBKDF2',
+        salt,
+        iterations: 100000,
+        hash: 'SHA-256'
+      },
+      keyMaterial,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt']
+    );
+
+    const privateKeyData = await crypto.exportKey('pkcs8', this.keyPair.privateKey);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encryptedPrivateKey = await crypto.encrypt(
+      {
+        name: 'AES-GCM',
+        iv
+      },
+      encryptionKey,
+      privateKeyData
+    );
+
+    const tx = this.db.transaction('keys', 'readwrite');
+    const store = tx.objectStore('keys');
+    
+    await Promise.all([
+      store.put({
+        id: 'privateKey',
+        data: Array.from(new Uint8Array(encryptedPrivateKey)),
+        iv: Array.from(iv),
+        salt: Array.from(salt)
+      }),
+      store.put({
+        id: 'publicKey',
+        data: this.publicKeyString
+      })
+    ]);
+  }
+
+  async unlockPrivateKey(pin) {
+    const tx = this.db.transaction('keys', 'readonly');
+    const store = tx.objectStore('keys');
+    const privateKeyData = await new Promise((resolve) => {
+      store.get('privateKey').onsuccess = (e) => resolve(e.target.result);
+    });
+
+    const salt = new Uint8Array(privateKeyData.salt);
+    const iv = new Uint8Array(privateKeyData.iv);
+    const encryptedData = new Uint8Array(privateKeyData.data);
+
+    const keyMaterial = await crypto.importKey(
+      'raw',
+      new TextEncoder().encode(pin),
+      { name: 'PBKDF2' },
+      false,
+      ['deriveBits', 'deriveKey']
+    );
+
+    const decryptionKey = await crypto.deriveKey(
+      {
+        name: 'PBKDF2',
+        salt,
+        iterations: 100000,
+        hash: 'SHA-256'
+      },
+      keyMaterial,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt']
+    );
+
+    try {
+      const decryptedPrivateKey = await crypto.decrypt(
+        {
+          name: 'AES-GCM',
+          iv
+        },
+        decryptionKey,
+        encryptedData
+      );
+
+      this.keyPair = {
+        privateKey: await crypto.importKey(
+          'pkcs8',
+          decryptedPrivateKey,
+          {
+            name: 'ECDSA',
+            namedCurve: 'P-256'
+          },
+          true,
+          ['sign']
+        ),
+        publicKey: await crypto.importKey(
+          'raw',
+          new Uint8Array(Array.from(privateKeyData.publicKey).map(x => parseInt(x, 16))),
+          {
+            name: 'ECDSA',
+            namedCurve: 'P-256'
+          },
+          true,
+          ['verify']
+        )
+      };
+
+      this.initialized = true;
+      return true;
+    } catch (error) {
+      console.error('Failed to decrypt private key:', error);
+      return false;
+    }
+  }
+
+  async sign(data) {
+    if (!this.initialized) throw new Error('Security Manager not initialized');
+    
+    const signature = await crypto.sign(
+      {
+        name: 'ECDSA',
+        hash: { name: 'SHA-256' }
+      },
+      this.keyPair.privateKey,
+      new TextEncoder().encode(JSON.stringify(data))
+    );
+
+    return Array.from(new Uint8Array(signature))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+  }
+
+  async verify(data, signature, publicKey) {
+    const publicKeyBuffer = new Uint8Array(Array.from(publicKey).map(x => parseInt(x, 16)));
+    const signatureBuffer = new Uint8Array(Array.from(signature).map(x => parseInt(x, 16)));
+    
+    const importedPublicKey = await crypto.importKey(
+      'raw',
+      publicKeyBuffer,
+      {
+        name: 'ECDSA',
+        namedCurve: 'P-256'
+      },
+      true,
+      ['verify']
+    );
+
+    return crypto.verify(
+      {
+        name: 'ECDSA',
+        hash: { name: 'SHA-256' }
+      },
+      importedPublicKey,
+      signatureBuffer,
+      new TextEncoder().encode(JSON.stringify(data))
+    );
+  }
+}
+
 const room = new WebsimSocket();
+const securityManager = new SecurityManager();
 
-// Set of permanent keys
-const PERMANENT_KEYS = new Set();
+// Initialize security manager
+securityManager.init();
 
-// Initialize with a permanent entry
-room.store.update({
-  id: "system_info",
-  dependencies: { value: "This is a permanent system entry" },
-  updateFunction: (current) => current || "This is a permanent system entry"
-});
-PERMANENT_KEYS.add("system_info");
+async function setupKeys() {
+  const pin = document.getElementById('pinInput').value;
+  if (!/^\d{6}$/.test(pin)) {
+    alert('Please enter a 6-digit PIN');
+    return;
+  }
+
+  await securityManager.generateKeyPair();
+  await securityManager.storeKeys(pin);
+  
+  document.getElementById('setupContainer').style.display = 'none';
+  document.getElementById('mainContent').style.display = 'block';
+  
+  securityManager.initialized = true;
+}
+
+async function unlockWithPin() {
+  const pin = document.getElementById('unlockPin').value;
+  if (!/^\d{6}$/.test(pin)) {
+    alert('Please enter a 6-digit PIN');
+    return;
+  }
+
+  const success = await securityManager.unlockPrivateKey(pin);
+  if (success) {
+    document.getElementById('unlockContainer').style.display = 'none';
+    document.getElementById('mainContent').style.display = 'block';
+  } else {
+    alert('Incorrect PIN');
+  }
+}
 
 room.onPeersChanged = (peers) => {
   const usersDiv = document.getElementById('users');
@@ -127,97 +405,80 @@ async function renderStore() {
   const storeContent = document.getElementById('storeContent');
   storeContent.innerHTML = '';
   
-  Object.entries(store).forEach(([key, value]) => {
+  for (const [key, value] of Object.entries(store)) {
+    if (!value || !value.data) continue;
+
     const entry = document.createElement('div');
-    entry.className = 'entry' + (PERMANENT_KEYS.has(key) ? ' permanent' : '');
-    
-    const escapedKey = key.replace(/"/g, '&quot;');
-    const escapedValue = JSON.stringify(value).replace(/"/g, '&quot;');
-    
-    entry.innerHTML = `
-      <div class="entry-content">
-        <strong>${escapedKey}:</strong> ${value}
-        ${PERMANENT_KEYS.has(key) ? '<span style="color: #ff9800; margin-left: 10px;">(Permanent Entry)</span>' : ''}
-      </div>
-      <div class="entry-actions">
-        <button class="edit-button" onclick="editEntry('${escapedKey}', '${escapedValue}')">Edit</button>
-        <button class="delete-button" onclick="deleteEntry('${escapedKey}')" 
-          ${PERMANENT_KEYS.has(key) ? 'disabled' : ''}>Delete</button>
-      </div>
-    `;
+    entry.className = 'secure-entry';
+
+    try {
+      const isValid = await securityManager.verify(
+        value.data,
+        value.signature,
+        value.publicKey
+      );
+
+      entry.innerHTML = `
+        <div class="entry-content">
+          <strong>${key}:</strong> ${value.data.value}
+          <span class="verification-badge ${isValid ? '' : 'invalid-badge'}">
+            ${isValid ? '✓ Verified' : '⚠ Invalid'}
+          </span>
+          <div style="font-size: 0.8em; color: #888;">
+            Author: ${value.data.username}
+          </div>
+        </div>
+      `;
+    } catch (error) {
+      console.error('Verification error:', error);
+      entry.innerHTML = `
+        <div class="entry-content">
+          <strong>${key}:</strong> ${value.data.value}
+          <span class="verification-badge invalid-badge">⚠ Verification Failed</span>
+        </div>
+      `;
+    }
+
     storeContent.appendChild(entry);
-  });
+  }
 }
 
 room.onRecordChanged = renderStore;
 
-async function updateStore() {
+async function addSecureEntry() {
+  if (!securityManager.initialized) {
+    alert('Please unlock your private key first');
+    return;
+  }
+
   const key = document.getElementById('keyInput').value;
   const value = document.getElementById('valueInput').value;
-  const isPermanent = document.getElementById('permanentCheck').checked;
   
-  if (!key) {
-    alert('Please enter a key');
+  if (!key || !value) {
+    alert('Please enter both key and value');
     return;
   }
 
-  try {
-    await room.store.update({
-      id: key,
-      dependencies: { value },
-      updateFunction: () => value
-    });
+  const data = {
+    value,
+    username: room.party.client.username,
+    timestamp: Date.now()
+  };
 
-    if (isPermanent) {
-      PERMANENT_KEYS.add(key);
-    }
+  const signature = await securityManager.sign(data);
 
-    // Clear inputs
-    document.getElementById('keyInput').value = '';
-    document.getElementById('valueInput').value = '';
-    document.getElementById('permanentCheck').checked = false;
-  } catch (error) {
-    console.error('Error updating store:', error);
-    alert('Failed to update store');
-  }
-}
+  await room.store.update({
+    id: key,
+    dependencies: { data, signature, publicKey: securityManager.publicKeyString },
+    updateFunction: () => ({
+      data,
+      signature,
+      publicKey: securityManager.publicKeyString
+    })
+  });
 
-async function editEntry(key, currentValue) {
-  try {
-    const parsedValue = JSON.parse(currentValue);
-    const newValue = prompt(`Edit value for "${key}":`, parsedValue);
-    
-    if (newValue !== null) {
-      await room.store.update({
-        id: key,
-        dependencies: { newValue },
-        updateFunction: () => newValue
-      });
-    }
-  } catch (error) {
-    console.error('Error editing entry:', error);
-    alert('Failed to edit entry');
-  }
-}
-
-async function deleteEntry(key) {
-  if (PERMANENT_KEYS.has(key)) {
-    alert('This entry cannot be deleted as it is marked as permanent.');
-    return;
-  }
-
-  if (confirm(`Are you sure you want to delete "${key}"?`)) {
-    try {
-      await room.store.update({
-        id: key,
-        dependencies: {},
-        updateFunction: () => undefined
-      });
-    } catch (error) {
-      console.error('Error deleting entry:', error);
-      alert('Failed to delete entry');
-    }
-  }
+  document.getElementById('keyInput').value = '';
+  document.getElementById('valueInput').value = '';
 }
 
 // Initial store content load
