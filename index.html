@@ -115,6 +115,22 @@ button:disabled {
 // Utility functions for crypto operations
 const cryptoSubtle = window.crypto.subtle;
 
+async function resetIndexedDB(storeId) {
+  return new Promise((resolve, reject) => {
+    const deleteRequest = indexedDB.deleteDatabase(`SecureStore_${storeId}`);
+    
+    deleteRequest.onerror = () => {
+      console.error("Error deleting database");
+      reject(deleteRequest.error);
+    };
+    
+    deleteRequest.onsuccess = () => {
+      console.log("Database deleted successfully");
+      resolve();
+    };
+  });
+}
+
 class SecurityManager {
   constructor() {
     this.keyPair = null;
@@ -125,6 +141,9 @@ class SecurityManager {
   }
 
   async init() {
+    // Reset database first
+    await resetIndexedDB(this.storeId);
+    
     const dbPromise = new Promise((resolve, reject) => {
       const request = indexedDB.open(`SecureStore_${this.storeId}`, 1);
       
@@ -369,6 +388,12 @@ async function setupKeys() {
     console.log('Storing keys in IndexedDB...');
     await securityManager.storeKeys(pin);
     
+    // Verify the keys were stored correctly
+    const success = await securityManager.unlockPrivateKey(pin);
+    if (!success) {
+      throw new Error('Key verification failed after storage');
+    }
+    
     document.getElementById('setupContainer').style.display = 'none';
     document.getElementById('mainContent').style.display = 'block';
     
@@ -377,6 +402,9 @@ async function setupKeys() {
   } catch (error) {
     console.error('Setup failed:', error);
     alert('Failed to setup keys: ' + error.message);
+    // Reset on failure
+    await resetIndexedDB(securityManager.storeId);
+    location.reload();
   }
 }
 
