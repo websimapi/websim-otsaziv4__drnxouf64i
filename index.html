@@ -221,7 +221,8 @@ class SecurityManager {
         id: 'privateKey',
         data: Array.from(new Uint8Array(encryptedPrivateKey)),
         iv: Array.from(iv),
-        salt: Array.from(salt)
+        salt: Array.from(salt),
+        publicKey: this.publicKeyString
       }),
       store.put({
         id: 'publicKey',
@@ -272,6 +273,8 @@ class SecurityManager {
         encryptedData
       );
 
+      this.publicKeyString = privateKeyData.publicKey;
+
       this.keyPair = {
         privateKey: await cryptoSubtle.importKey(
           'pkcs8',
@@ -285,7 +288,7 @@ class SecurityManager {
         ),
         publicKey: await cryptoSubtle.importKey(
           'raw',
-          new Uint8Array(Array.from(privateKeyData.publicKey).map(x => parseInt(x, 16))),
+          new Uint8Array(this.publicKeyString.match(/.{1,2}/g).map(byte => parseInt(byte, 16))),
           {
             name: 'ECDSA',
             namedCurve: 'P-256'
@@ -321,8 +324,8 @@ class SecurityManager {
   }
 
   async verify(data, signature, publicKey) {
-    const publicKeyBuffer = new Uint8Array(Array.from(publicKey).map(x => parseInt(x, 16)));
-    const signatureBuffer = new Uint8Array(Array.from(signature).map(x => parseInt(x, 16)));
+    const publicKeyBuffer = new Uint8Array(publicKey.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+    const signatureBuffer = new Uint8Array(signature.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
     
     const importedPublicKey = await cryptoSubtle.importKey(
       'raw',
