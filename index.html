@@ -94,13 +94,18 @@ async function renderStore() {
   Object.entries(store).forEach(([key, value]) => {
     const entry = document.createElement('div');
     entry.className = 'entry';
+    
+    // Escape the key and value for safe insertion into HTML string
+    const escapedKey = key.replace(/"/g, '&quot;');
+    const escapedValue = JSON.stringify(value).replace(/"/g, '&quot;');
+    
     entry.innerHTML = `
       <div class="entry-content">
-        <strong>${key}:</strong> ${JSON.stringify(value)}
+        <strong>${escapedKey}:</strong> ${value}
       </div>
       <div class="entry-actions">
-        <button class="edit-button" onclick="editEntry('${key}', ${JSON.stringify(value)})">Edit</button>
-        <button class="delete-button" onclick="deleteEntry('${key}')">Delete</button>
+        <button class="edit-button" onclick="editEntry('${escapedKey}', '${escapedValue}')">Edit</button>
+        <button class="delete-button" onclick="deleteEntry('${escapedKey}')">Delete</button>
       </div>
     `;
     storeContent.appendChild(entry);
@@ -120,37 +125,54 @@ async function updateStore() {
     return;
   }
 
-  await room.store.update({
-    id: key,
-    dependencies: { value },
-    updateFunction: () => value
-  });
+  try {
+    await room.store.update({
+      id: key,
+      dependencies: { value },
+      updateFunction: () => value
+    });
 
-  // Clear inputs
-  document.getElementById('keyInput').value = '';
-  document.getElementById('valueInput').value = '';
+    // Clear inputs
+    document.getElementById('keyInput').value = '';
+    document.getElementById('valueInput').value = '';
+  } catch (error) {
+    console.error('Error updating store:', error);
+    alert('Failed to update store');
+  }
 }
 
 // Function to edit an entry
 async function editEntry(key, currentValue) {
-  const newValue = prompt(`Edit value for "${key}":`, currentValue);
-  if (newValue !== null) {
-    await room.store.update({
-      id: key,
-      dependencies: { newValue },
-      updateFunction: () => newValue
-    });
+  try {
+    const parsedValue = JSON.parse(currentValue);
+    const newValue = prompt(`Edit value for "${key}":`, parsedValue);
+    
+    if (newValue !== null) {
+      await room.store.update({
+        id: key,
+        dependencies: { newValue },
+        updateFunction: () => newValue
+      });
+    }
+  } catch (error) {
+    console.error('Error editing entry:', error);
+    alert('Failed to edit entry');
   }
 }
 
 // Function to delete an entry
 async function deleteEntry(key) {
   if (confirm(`Are you sure you want to delete "${key}"?`)) {
-    await room.store.update({
-      id: key,
-      dependencies: {},
-      updateFunction: () => undefined // Setting to undefined removes the entry
-    });
+    try {
+      await room.store.update({
+        id: key,
+        dependencies: {},
+        updateFunction: () => undefined // Setting to undefined removes the entry
+      });
+    } catch (error) {
+      console.error('Error deleting entry:', error);
+      alert('Failed to delete entry');
+    }
   }
 }
 
