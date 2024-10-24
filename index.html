@@ -121,12 +121,12 @@ class SecurityManager {
     this.publicKeyString = null;
     this.db = null;
     this.initialized = false;
+    this.storeId = btoa(window.location.pathname).replace(/[^a-zA-Z0-9]/g, '');
   }
 
   async init() {
-    // Open IndexedDB
     const dbPromise = new Promise((resolve, reject) => {
-      const request = indexedDB.open('SecureStore', 1);
+      const request = indexedDB.open(`SecureStore_${this.storeId}`, 1);
       
       request.onerror = () => reject(request.error);
       request.onsuccess = () => resolve(request.result);
@@ -141,7 +141,6 @@ class SecurityManager {
 
     this.db = await dbPromise;
     
-    // Check if keys exist
     const hasKeys = await this.hasStoredKeys();
     if (hasKeys) {
       document.getElementById('unlockContainer').style.display = 'block';
@@ -172,7 +171,6 @@ class SecurityManager {
       ['sign', 'verify']
     );
 
-    // Export public key for sharing
     const publicKeyBuffer = await cryptoSubtle.exportKey('raw', this.keyPair.publicKey);
     this.publicKeyString = Array.from(new Uint8Array(publicKeyBuffer))
       .map(b => b.toString(16).padStart(2, '0'))
@@ -362,13 +360,21 @@ async function setupKeys() {
     return;
   }
 
-  await securityManager.generateKeyPair();
-  await securityManager.storeKeys(pin);
-  
-  document.getElementById('setupContainer').style.display = 'none';
-  document.getElementById('mainContent').style.display = 'block';
-  
-  securityManager.initialized = true;
+  try {
+    console.log('Generating new keypair...');
+    await securityManager.generateKeyPair();
+    console.log('Storing keys in IndexedDB...');
+    await securityManager.storeKeys(pin);
+    
+    document.getElementById('setupContainer').style.display = 'none';
+    document.getElementById('mainContent').style.display = 'block';
+    
+    securityManager.initialized = true;
+    console.log('Setup complete!');
+  } catch (error) {
+    console.error('Setup failed:', error);
+    alert('Failed to setup keys: ' + error.message);
+  }
 }
 
 async function unlockWithPin() {
@@ -378,14 +384,28 @@ async function unlockWithPin() {
     return;
   }
 
-  const success = await securityManager.unlockPrivateKey(pin);
-  if (success) {
-    document.getElementById('unlockContainer').style.display = 'none';
-    document.getElementById('mainContent').style.display = 'block';
-  } else {
-    alert('Incorrect PIN');
+  try {
+    console.log('Attempting to unlock private key...');
+    const success = await securityManager.unlockPrivateKey(pin);
+    if (success) {
+      document.getElementById('unlockContainer').style.display = 'none';
+      document.getElementById('mainContent').style.display = 'block';
+      console.log('Successfully unlocked private key');
+    } else {
+      console.log('Incorrect PIN provided');
+      alert('Incorrect PIN');
+    }
+  } catch (error) {
+    console.error('Unlock failed:', error);
+    alert('Failed to unlock: ' + error.message);
   }
 }
+
+window.addEventListener('unload', async () => {
+  if (securityManager.db) {
+    securityManager.db.close();
+  }
+});
 
 room.onPeersChanged = (peers) => {
   const usersDiv = document.getElementById('users');
