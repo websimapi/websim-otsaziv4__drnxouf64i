@@ -1,0 +1,70 @@
+<html><head><base href="https://websim.dev-next.co"><style>body{background: #111; color: white;}</style></head><body>
+Testing the WebsimSocket's store functionality with a simple multiplayer key-value store viewer/editor.
+
+<div id="storeViewer" style="padding: 20px;">
+  <h2>Multiplayer Store Test</h2>
+  <div id="users" style="margin-bottom: 20px;"></div>
+  
+  <div style="margin-bottom: 20px;">
+    <h3>Add/Update Value</h3>
+    <input type="text" id="keyInput" placeholder="Key" style="margin-right: 10px;">
+    <input type="text" id="valueInput" placeholder="Value">
+    <button onclick="updateStore()">Update</button>
+  </div>
+
+  <div>
+    <h3>Current Store Contents:</h3>
+    <pre id="storeContent" style="background: #222; padding: 10px; border-radius: 5px;"></pre>
+  </div>
+</div>
+
+<script>
+const room = new WebsimSocket();
+
+// Update the users display
+room.onPeersChanged = (peers) => {
+  const usersDiv = document.getElementById('users');
+  usersDiv.innerHTML = '<h3>Connected Users:</h3>';
+  Object.entries(peers).forEach(([clientId, {username, avatarUrl}]) => {
+    usersDiv.innerHTML += `
+      <div style="display: inline-block; margin: 5px; text-align: center;">
+        <img src="${avatarUrl}" width="40" height="40" style="border-radius: 50%;">
+        <div>${username}</div>
+      </div>
+    `;
+  });
+};
+
+// Update store display whenever any record changes
+room.onRecordChanged = async () => {
+  const store = await room.store.getAll();
+  document.getElementById('storeContent').textContent = JSON.stringify(store, null, 2);
+};
+
+// Function to update the store
+async function updateStore() {
+  const key = document.getElementById('keyInput').value;
+  const value = document.getElementById('valueInput').value;
+  
+  if (!key) {
+    alert('Please enter a key');
+    return;
+  }
+
+  await room.store.update({
+    id: key,
+    dependencies: { value },
+    updateFunction: () => value
+  });
+
+  // Clear inputs
+  document.getElementById('keyInput').value = '';
+  document.getElementById('valueInput').value = '';
+}
+
+// Initial store content load
+room.onRecordChanged();
+</script>
+
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body></html>
