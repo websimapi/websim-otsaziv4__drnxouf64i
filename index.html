@@ -113,7 +113,7 @@ button:disabled {
 
 <script>
 // Utility functions for crypto operations
-const crypto = window.crypto.subtle;
+const cryptoSubtle = window.crypto.subtle;
 
 class SecurityManager {
   constructor() {
@@ -163,7 +163,7 @@ class SecurityManager {
   }
 
   async generateKeyPair() {
-    this.keyPair = await crypto.generateKey(
+    this.keyPair = await cryptoSubtle.generateKey(
       {
         name: 'ECDSA',
         namedCurve: 'P-256'
@@ -173,7 +173,7 @@ class SecurityManager {
     );
 
     // Export public key for sharing
-    const publicKeyBuffer = await crypto.exportKey('raw', this.keyPair.publicKey);
+    const publicKeyBuffer = await cryptoSubtle.exportKey('raw', this.keyPair.publicKey);
     this.publicKeyString = Array.from(new Uint8Array(publicKeyBuffer))
       .map(b => b.toString(16).padStart(2, '0'))
       .join('');
@@ -182,8 +182,8 @@ class SecurityManager {
   }
 
   async storeKeys(pin) {
-    const salt = crypto.getRandomValues(new Uint8Array(16));
-    const keyMaterial = await crypto.importKey(
+    const salt = window.crypto.getRandomValues(new Uint8Array(16));
+    const keyMaterial = await cryptoSubtle.importKey(
       'raw',
       new TextEncoder().encode(pin),
       { name: 'PBKDF2' },
@@ -191,7 +191,7 @@ class SecurityManager {
       ['deriveBits', 'deriveKey']
     );
 
-    const encryptionKey = await crypto.deriveKey(
+    const encryptionKey = await cryptoSubtle.deriveKey(
       {
         name: 'PBKDF2',
         salt,
@@ -204,9 +204,9 @@ class SecurityManager {
       ['encrypt', 'decrypt']
     );
 
-    const privateKeyData = await crypto.exportKey('pkcs8', this.keyPair.privateKey);
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const encryptedPrivateKey = await crypto.encrypt(
+    const privateKeyData = await cryptoSubtle.exportKey('pkcs8', this.keyPair.privateKey);
+    const iv = window.crypto.getRandomValues(new Uint8Array(12));
+    const encryptedPrivateKey = await cryptoSubtle.encrypt(
       {
         name: 'AES-GCM',
         iv
@@ -243,7 +243,7 @@ class SecurityManager {
     const iv = new Uint8Array(privateKeyData.iv);
     const encryptedData = new Uint8Array(privateKeyData.data);
 
-    const keyMaterial = await crypto.importKey(
+    const keyMaterial = await cryptoSubtle.importKey(
       'raw',
       new TextEncoder().encode(pin),
       { name: 'PBKDF2' },
@@ -251,7 +251,7 @@ class SecurityManager {
       ['deriveBits', 'deriveKey']
     );
 
-    const decryptionKey = await crypto.deriveKey(
+    const decryptionKey = await cryptoSubtle.deriveKey(
       {
         name: 'PBKDF2',
         salt,
@@ -265,7 +265,7 @@ class SecurityManager {
     );
 
     try {
-      const decryptedPrivateKey = await crypto.decrypt(
+      const decryptedPrivateKey = await cryptoSubtle.decrypt(
         {
           name: 'AES-GCM',
           iv
@@ -275,7 +275,7 @@ class SecurityManager {
       );
 
       this.keyPair = {
-        privateKey: await crypto.importKey(
+        privateKey: await cryptoSubtle.importKey(
           'pkcs8',
           decryptedPrivateKey,
           {
@@ -285,7 +285,7 @@ class SecurityManager {
           true,
           ['sign']
         ),
-        publicKey: await crypto.importKey(
+        publicKey: await cryptoSubtle.importKey(
           'raw',
           new Uint8Array(Array.from(privateKeyData.publicKey).map(x => parseInt(x, 16))),
           {
@@ -308,7 +308,7 @@ class SecurityManager {
   async sign(data) {
     if (!this.initialized) throw new Error('Security Manager not initialized');
     
-    const signature = await crypto.sign(
+    const signature = await cryptoSubtle.sign(
       {
         name: 'ECDSA',
         hash: { name: 'SHA-256' }
@@ -326,7 +326,7 @@ class SecurityManager {
     const publicKeyBuffer = new Uint8Array(Array.from(publicKey).map(x => parseInt(x, 16)));
     const signatureBuffer = new Uint8Array(Array.from(signature).map(x => parseInt(x, 16)));
     
-    const importedPublicKey = await crypto.importKey(
+    const importedPublicKey = await cryptoSubtle.importKey(
       'raw',
       publicKeyBuffer,
       {
@@ -337,7 +337,7 @@ class SecurityManager {
       ['verify']
     );
 
-    return crypto.verify(
+    return cryptoSubtle.verify(
       {
         name: 'ECDSA',
         hash: { name: 'SHA-256' }
